@@ -1,0 +1,16 @@
+{
+  "rules": [
+    {
+      "name": "cua-server",
+      "contains": ["cua_node/bin/node", "server.mjs"]
+    },
+    {
+      "name": "code-mode-host",
+      "contains": ["code-mode-host"]
+    },
+    {
+      "name": "example-desktop-client",
+      "contains": ["/Applications/Example App.app/Contents/Helpers/mcp-runner"]
+    }
+  ]
+}

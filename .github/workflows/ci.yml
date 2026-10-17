@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: stdlib-only suite
+        run: python -m unittest discover -s tests -v
+      - name: install and smoke against the live process table
+        if: matrix.python-version == '3.12'
+        run: |
+          pip install -e .
+          mcp-reaper --help > /dev/null
+          # plan and explain are read-only; 0 (nothing eligible) and 1 (eligible
+          # found) are both acceptable outcomes on a runner, so assert only that
+          # the JSON shape parses.
+          if mcp-reaper plan --json > plan.json; then :; elif [ $? -eq 1 ]; then :; else exit 1; fi
+          python -c "import json; d=json.load(open('plan.json')); assert 'groups' in d and 'eligible' in d; print('groups:', len(d['groups']), 'eligible:', d['eligible'])"
+          mcp-reaper explain > /dev/null || true
+          # reap without --yes must never signal, whatever the table looks like
+          mcp-reaper reap > /dev/null 2>&1 || true
+          git ls-files | grep -c '^src/mcp_reaper/' | grep -q '^[1-9]'

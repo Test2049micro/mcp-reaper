@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Install:  cp examples/mcp-reaper.plist.example ~/Library/LaunchAgents/dev.mcp-reaper.plist
+            launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.mcp-reaper.plist
+  Read-only by default: this template runs `plan` and logs it. Once you have read
+  a week of logs, change the Arguments to  ["mcp-reaper","reap","--yes"] .
+  Keep the dry-run entry point until then -- reaping what you have not looked at
+  is how you find out your client binary was not in the session-host list.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.mcp-reaper</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/mcp-reaper</string>
+    <string>plan</string>
+    <string>--json</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>1800</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/mcp-reaper.out.jsonl</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/mcp-reaper.err</string>
+</dict>
+</plist>
