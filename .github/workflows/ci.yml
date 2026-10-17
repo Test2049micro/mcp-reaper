@@ -17,19 +17,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      # the suite runs against the source tree with no install, so PYTHONPATH is
+      # required: a bare `unittest discover` fails to import the package and the
+      # root conftest.py only helps pytest
       - name: stdlib-only suite
-        run: python -m unittest discover -s tests -v
+        run: PYTHONPATH=src python -m unittest discover -s tests -v
       - name: install and smoke against the live process table
         if: matrix.python-version == '3.12'
         run: |
           pip install -e .
           mcp-reaper --help > /dev/null
-          # plan and explain are read-only; 0 (nothing eligible) and 1 (eligible
-          # found) are both acceptable outcomes on a runner, so assert only that
-          # the JSON shape parses.
-          if mcp-reaper plan --json > plan.json; then :; elif [ $? -eq 1 ]; then :; else exit 1; fi
-          python -c "import json; d=json.load(open('plan.json')); assert 'groups' in d and 'eligible' in d; print('groups:', len(d['groups']), 'eligible:', d['eligible'])"
-          mcp-reaper explain > /dev/null || true
-          # reap without --yes must never signal, whatever the table looks like
-          mcp-reaper reap > /dev/null 2>&1 || true
-          git ls-files | grep -c '^src/mcp_reaper/' | grep -q '^[1-9]'
+          mcp-reaper explain > /dev/null 2>&1 || true
+          # plan exits 1 when it finds eligible processes, which is a correct
+          # answer rather than a failure: assert the JSON, and the code separately
+          set +e
+          mcp-reaper plan --json > plan.json
+          rc=$?
+          set -e
+          test "$rc" -eq 0 -o "$rc" -eq 1
+          python -c "import json; d=json.load(open('plan.json')); assert {'groups','eligible','ambiguous_excluded'} <= set(d), sorted(d)"

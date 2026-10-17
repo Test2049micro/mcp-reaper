@@ -1,3 +1,4 @@
+import os
 import unittest
 
 from mcp_reaper.proctable import Row, ancestry, etime_to_sec, parse_ps
@@ -15,26 +16,40 @@ class EtimeTest(unittest.TestCase):
 
 
 class ParsePsTest(unittest.TestCase):
-    SAMPLE = "\n".join([
-        "  UID   PID  PPID     ELAPSED COMMAND",
-        "  501  1001     1    03:00:00 /Applications/Codex CLI.app/Contents/MacOS/codex-cli",
-        "  501  1002  1001    01:00:00 node /opt/context7-mcp/dist/index.js",
-        "  501  1003  1001    00:30:00 node /opt/context7-mcp/dist/index.js",
-        "    0     7     0    10:00:00 /sbin/launchd",
-    ])
+    # uids are passed explicitly everywhere: a hard-coded 501 in a fixture that
+    # relies on the *default* filter would pass on this machine and fail on a CI
+    # runner whose first interactive uid is different
+    @classmethod
+    def setUpClass(cls):
+        cls.mine = os.getuid()
+        cls.other = 0 if cls.mine != 0 else 65534
+        cls.SAMPLE = "\n".join([
+            "  UID   PID  PPID     ELAPSED COMMAND",
+            f"  {cls.mine:>3}  1001     1    03:00:00 /Applications/Codex CLI.app/Contents/MacOS/codex-cli",
+            f"  {cls.mine:>3}  1002  1001    01:00:00 node /opt/context7-mcp/dist/index.js",
+            f"  {cls.mine:>3}  1003  1001    00:30:00 node /opt/context7-mcp/dist/index.js",
+            f"  {cls.other:>3}     7     0    10:00:00 /sbin/launchd",
+        ])
+
+    def test_default_filter_keeps_only_the_current_uid(self):
+        self.assertEqual(set(parse_ps(self.SAMPLE)), {1001, 1002, 1003})
+
+    def test_explicit_uid_overrides_the_default(self):
+        self.assertEqual(set(parse_ps(self.SAMPLE, uid=self.other)), {7})
 
     def test_row_count_and_uid_filter(self):
-        table = parse_ps(self.SAMPLE, uid=501)
+        table = parse_ps(self.SAMPLE, uid=self.mine)
         self.assertEqual(set(table), {1001, 1002, 1003})
         self.assertNotIn(7, table)
 
     def test_fields_parsed(self):
-        row = parse_ps(self.SAMPLE, uid=501)[1002]
+        row = parse_ps(self.SAMPLE, uid=self.mine)[1002]
         self.assertEqual((row.ppid, row.age_sec), (1001, 3600))
         self.assertIn("context7-mcp", row.command)
 
     def test_header_line_is_not_a_process(self):
-        self.assertNotIn(0, parse_ps(self.SAMPLE, uid=None))
+        # the header row must not become a phantom entry
+        self.assertEqual(parse_ps("  UID   PID  PPID     ELAPSED COMMAND\n"), {})
 
 
 class AncestryTest(unittest.TestCase):
