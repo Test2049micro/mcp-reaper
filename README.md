@@ -163,7 +163,7 @@ out of world-readable paths anyway: `examples/scheduled.sh` logs to
 ## Development
 
 ```bash
-python -m unittest discover -s tests -v     # zero dependencies
+PYTHONPATH=src python -m unittest discover -s tests -v     # zero dependencies
 ```
 
 The suite is organised around what actually broke in the field, not around
