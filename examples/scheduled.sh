@@ -16,7 +16,16 @@ case $? in
   *) echo "$(date -u +%FT%TZ) plan failed" >>"$LOG"; rm -f "$PLAN_JSON"; exit 1 ;;
 esac
 
-COUNT=$(sed -e 's/.*"eligible": *\([0-9]*\).*/\1/' <<<"$(tr -d '\n' <"$PLAN_JSON)")
+# parsed with the same interpreter the tool requires, not sed: a key reorder, a
+# newline change, or a "eligible" substring inside a command string would make a
+# sed extraction silently read the wrong number, and this number decides whether
+# processes get signalled
+COUNT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["eligible"])' "$PLAN_JSON" 2>/dev/null)
+if [ -z "$COUNT" ]; then
+  echo "$(date -u +%FT%TZ) could not parse the plan; not reaping" >>"$LOG"
+  rm -f "$PLAN_JSON"
+  exit 1
+fi
 echo "$(date -u +%FT%TZ) $COUNT eligible, reaping" >>"$LOG"
 mcp-reaper reap --yes >>"$LOG" 2>&1
 case $? in
