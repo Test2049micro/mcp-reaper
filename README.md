@@ -127,6 +127,26 @@ job fail silently every 30 minutes. Dry-run by default — flip the `--reap --ye
 on your machine). On Linux, any cron or systemd timer works; the exit-code
 branch above is the pattern.
 
+## Flags that change the safety envelope
+
+| flag | what it relaxes, and the guard on it |
+|---|---|
+| `--marker` | the substring that admits a command as a server. Must be at least 2 characters: `--marker ""` would make every process on the machine a candidate, and the CLI refuses it with exit 4 |
+| `--rules FILE` | admits commands the marker cannot see (a helper with no `mcp` in argv). A malformed file exits **4, not 1** -- `1` tells a wrapper "there is something to reap", so a config error that fell through as `1` would start killing processes on a file that never parsed |
+| `--reap-ambiguous` | opts in to reaping groups with no identifiable session host. Off by default: not knowing whose session a server belongs to is not licence to guess |
+| `--uid` | plans against one uid and re-validates the freshly read table against that same uid; dropping it made every target report `gone` |
+| `--max N` | refuses to signal more than N processes (default 200) |
+| `--keep N` | copies kept per (session, type) group; `--keep 0` is rejected because a reaper with no keep is a mass kill |
+
+## Command lines are masked
+
+`ps` shows full argv, and MCP servers are routinely launched with `--token` or
+`--api-key` in it. Every `command` field in `plan --json`, `reap --json` and
+`explain` passes through a mask that replaces credential-shaped arguments with
+`--token=[redacted]` while keeping the identifying path visible. Keep the output
+out of world-readable paths anyway: `examples/scheduled.sh` logs to
+`~/.local/state/mcp-reaper/` for that reason.
+
 ## Limitations, stated plainly
 
 - **It is a janitor, not a fix.** The leak is in the client. Reaping periodically
