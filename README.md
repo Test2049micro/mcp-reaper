@@ -53,6 +53,9 @@ process is not licence to guess.
 
 ```bash
 pipx install mcp-reaper            # or: pip install mcp-reaper
+
+# Not on PyPI yet (name verified free as of 2026-10-17). Until the first release:
+git clone https://github.com/Test2049micro/mcp-reaper && cd mcp-reaper && pipx install .
 ```
 
 ## Usage
