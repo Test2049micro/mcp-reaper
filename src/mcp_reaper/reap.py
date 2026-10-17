@@ -16,6 +16,7 @@ to is not the same as being allowed to guess.
 from __future__ import annotations
 
 import os
+import re
 import signal
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -39,7 +40,18 @@ DEFAULT_KEEP = 1
 DEFAULT_MIN_AGE_SEC = 120
 
 
+_BOUNDARIES = ("", "-", "_", ".", ":")
+
+
 def _is_session_host(row: Row, patterns: Sequence[str]) -> bool:
+    """Does this process look like an agent client that owns MCP servers?
+
+    Matching is on whole-word boundaries, not prefixes. A prefix test on "goose"
+    also matches ``gooseberry-mcp-server``, which would then be treated as a
+    session host -- merging two sessions' servers into one group and letting the
+    reaper SIGTERM a server that a live session is using. That is the worst
+    failure this tool can have, so an inexact match is not a match.
+    """
     command = row.command or ""
     low = command.lower()
     tokens = command.split()
@@ -49,7 +61,10 @@ def _is_session_host(row: Row, patterns: Sequence[str]) -> bool:
         if " " in needle or "/" in needle:
             if needle in low:
                 return True
-        elif base == needle or base.startswith(needle):
+            continue
+        if base == needle:
+            return True
+        if base.startswith(needle) and base[len(needle):len(needle) + 1] in ("-", "_", "."):
             return True
     return False
 
@@ -61,6 +76,25 @@ def session_root(pid: int, table: Mapping[int, Row], patterns: Sequence[str]) ->
         if row is not None and _is_session_host(row, patterns):
             return ancestor
     return None
+
+
+_SECRETISH = re.compile(
+    r"(?P<flag>--?(?:token|api[-_]?key|secret|password|auth|bearer))[= ](?P<val>\S+)",
+    re.IGNORECASE,
+)
+
+
+def redact_command(command: str) -> str:
+    """Strip credential-looking arguments before anything reaches stdout.
+
+    ``ps`` shows the full command line, and MCP servers are routinely launched with
+    ``--token`` or ``--api-key`` in argv. A reaper whose plan output ends up in a
+    world-readable log or a CI artefact must not become a token collector.
+    """
+    def swap(match: "re.Match[str]") -> str:
+        return match.group("flag") + "=[redacted]"
+
+    return _SECRETISH.sub(swap, command or "")
 
 
 @dataclass
@@ -80,7 +114,7 @@ class Target:
             "type": self.type,
             "session_root": self.session_root,
             "age_sec": self.age_sec,
-            "command": self.command[:160],
+            "command": redact_command(self.command)[:160],
         }
 
 
@@ -145,6 +179,7 @@ def build_plan(
     min_age_sec: int = DEFAULT_MIN_AGE_SEC,
     reap_ambiguous: bool = False,
     marker: str = "mcp",
+    uid: int | None = None,
     self_pid: int | None = None,
 ) -> Plan:
     own = os.getpid() if self_pid is None else self_pid
@@ -153,6 +188,8 @@ def build_plan(
 
     for pid, row in table.items():
         if pid in protected:
+            continue
+        if uid is not None and row.uid != uid:
             continue
         if _is_session_host(row, session_hosts):
             # a client binary that mentions "mcp" in its own command line is not
@@ -215,6 +252,7 @@ def execute(
     min_age_sec: int = DEFAULT_MIN_AGE_SEC,
     reap_ambiguous: bool = False,
     marker: str = "mcp",
+    uid: int | None = None,
     read_table=read_table,
     identity=read_identity,
     terminate=None,
@@ -236,7 +274,7 @@ def execute(
         if before is None or before != identities.get(target.pid):
             result.skipped.append({"pid": target.pid, "reason": "identity_changed"})
             continue
-        fresh = read_table()
+        fresh = read_table(uid=uid)
         if fresh.get(target.pid) is None:
             result.skipped.append({"pid": target.pid, "reason": "gone"})
             continue
@@ -248,6 +286,7 @@ def execute(
             min_age_sec=min_age_sec,
             reap_ambiguous=reap_ambiguous,
             marker=marker,
+            uid=uid,
         )
         if target.key() not in {t.key() for t in replanned.reap}:
             result.skipped.append({"pid": target.pid, "reason": "no_longer_eligible"})

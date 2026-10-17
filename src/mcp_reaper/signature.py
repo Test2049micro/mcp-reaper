@@ -20,8 +20,13 @@ GENERIC_STEMS = ("index", "main", "server", "app", "cli", "run", "start", "__mai
 SKIP_DIR_NAMES = (
     "dist", "bin", "out", "build", "lib", "src", "node_modules", ".bin",
     "opt", "usr", "local", "var", "home", "users", "private", "tmp", "applications",
-    "contents", "macos", "resources", "venv", "site-packages", ".", "..", "/",
+    "contents", "macos", "resources", "venv", "site-packages", ".", "..", "/", "",
 )
+# Names too common to identify a package: "/A/mcp/dist/index.js" and
+# "/B/mcp/index.js" are different servers, and grouping them together makes the
+# reaper kill one of them as a "duplicate".
+GENERIC_LABELS = ("mcp", "server", "servers", "index", "main", "app", "bin", "dist",
+                  "src", "lib", "out", "build", "node_modules", ".bin", "run")
 _RUNNERS = ("npx", "uvx", "pnpx", "dnx")
 # ``npm exec pkg`` / ``pnpm dlx pkg`` are the same shape as ``npx pkg``, but the
 # runner is not the token that carries the package name.
@@ -49,15 +54,26 @@ def load_rules(path: str | Path | None) -> list[Rule]:
     """
     if path is None:
         return []
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    name = str(path)
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{name}: not valid JSON ({exc})") from exc
     entries = data.get("rules", data) if isinstance(data, Mapping) else data
+    if not isinstance(entries, list):
+        raise ValueError(f"{name}: expected a list of rules, got {type(entries).__name__}")
     rules = []
-    for entry in entries:
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            raise ValueError(f"{name}: rule #{index + 1} is {type(entry).__name__}, expected an object")
+        if not entry.get("name"):
+            raise ValueError(f"{name}: rule #{index + 1} has no name")
         contains = entry.get("contains") or entry.get("patterns") or []
         if isinstance(contains, str):
             contains = [contains]
-        if entry.get("name") and contains:
-            rules.append(Rule(str(entry["name"]), contains))
+        if not isinstance(contains, list) or not contains or not all(isinstance(c, str) and c for c in contains):
+            raise ValueError(f"{name}: rule {entry.get('name')!r} needs a non-empty list of strings")
+        rules.append(Rule(str(entry["name"]), contains))
     return rules
 
 
@@ -88,8 +104,9 @@ def _label_from_path(path: str) -> str:
         suffix = "." + stem.rsplit(".", 1)[1].lower()
         if suffix in _SOURCE_SUFFIXES or suffix in (".node", ".bin", ".exe"):
             if Path(stem).stem.lower() in GENERIC_STEMS:
-                for part in reversed(candidate.parts[:-1]):
-                    if part.lower().rstrip("/") in SKIP_DIR_NAMES:
+                for part in reversed(candidate.parent.parts):
+                    lowered = part.lower().rstrip("/")
+                    if lowered in SKIP_DIR_NAMES or lowered in GENERIC_LABELS:
                         continue
                     return part
                 return Path(stem).stem

@@ -43,8 +43,8 @@ process is not licence to guess.
 |---|---|---|
 | identification | a process is a candidate only if a rule names it or its command mentions `mcp` | `--marker`, `--rules` |
 | attribution | groups without a session host are deferred, never reaped | `--reap-ambiguous` to override |
-| youth | a server younger than 120s is left alone, so a server that is mid-startup is never collected | `--min-age` |
 | volume | refuses to signal more than 200 processes in one run | `--max` |
+| youth | a server younger than 120s is left alone, so a server that is mid-startup is never collected | `--min-age` |
 | identity | re-reads the table and re-derives the plan before each signal; the PID must match `uid + lstart + command` byte-for-byte both before and after | — |
 
 `SIGTERM` only. Nothing is reaped that the reaper itself descends from.
@@ -120,8 +120,10 @@ that kills things.
 
 ## Scheduling
 
-`examples/mcp-reaper.plist.example` is a macOS LaunchAgent template (every 30
-minutes, dry-run by default — flip the `--reap --yes` argument when you trust it
+`examples/mcp-reaper.plist.example` is a macOS LaunchAgent template. Replace
+`ProgramArguments[0]` with the output of `command -v mcp-reaper` first: pipx puts
+it in `~/.local/bin`, Homebrew in `/opt/homebrew/bin`, and a wrong path makes the
+job fail silently every 30 minutes. Dry-run by default — flip the `--reap --yes` argument when you trust it
 on your machine). On Linux, any cron or systemd timer works; the exit-code
 branch above is the pattern.
 

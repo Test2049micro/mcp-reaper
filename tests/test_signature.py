@@ -41,7 +41,15 @@ class DeriveTest(unittest.TestCase):
         self.assertEqual(derive("/usr/local/bin/github-mcp-server --stdio"), "github-mcp-server")
 
     def test_quoted_paths_with_spaces(self):
-        self.assertEqual(derive('node "/Applications/My App/mcp/index.js"'), "mcp")
+        # "mcp" alone is too generic to identify a package, so the label climbs to
+        # the first meaningful directory
+        self.assertEqual(derive('node "/Applications/My App/mcp/index.js"'), "my-app")
+
+    def test_generic_directory_names_cannot_be_a_group_key(self):
+        # /A/mcp/dist/index.js and /B/mcp/dist/index.js are two different servers;
+        # sharing one label would merge them into a group and kill one as a
+        # "duplicate" of the other
+        self.assertNotEqual(derive("node /A/mcp/dist/index.js"), derive("node /B/mcp/dist/index.js"))
 
 
 class ClassifyTest(unittest.TestCase):
@@ -83,11 +91,32 @@ class LoadRulesTest(unittest.TestCase):
         rules = load_rules(handle.name)
         self.assertEqual([r.name for r in rules], ["x"])
 
-    def test_incomplete_rule_is_dropped(self):
+    def test_incomplete_rule_raises_instead_of_being_dropped(self):
+        # silently dropping a rule means a server the operator explicitly named
+        # stops being managed, and nothing says so
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
             json.dump({"rules": [{"name": "no-pattern"}, {"name": "ok", "contains": ["ok-mcp"]}]}, handle)
         self.addCleanup(Path(handle.name).unlink)
-        self.assertEqual([r.name for r in load_rules(handle.name)], ["ok"])
+        with self.assertRaises(ValueError):
+            load_rules(handle.name)
+
+    def test_rule_payload_types_are_checked(self):
+        for payload in ({"rules": ["a string"]},
+                        {"rules": {"name": "x", "contains": ["y"]}},
+                        {"rules": [{"name": "x", "contains": [7]}]},
+                        {"rules": [{"contains": ["x"]}]}):
+            with self.subTest(str(payload)[:40]):
+                with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+                    json.dump(payload, handle)
+                self.addCleanup(Path(handle.name).unlink)
+                with self.assertRaises(ValueError):
+                    load_rules(handle.name)
+
+    def test_string_contains_is_accepted(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+            json.dump({"rules": [{"name": "x", "contains": "x-mcp"}]}, handle)
+        self.addCleanup(Path(handle.name).unlink)
+        self.assertEqual([r.name for r in load_rules(handle.name)], ["x"])
 
 
 if __name__ == "__main__":
